@@ -18,7 +18,9 @@ import os
 load_dotenv()
 
 
-SECRET_KEY = os.getenv("SECRET_KEY")
+# SECRET_KEY = os.getenv("SECRET_KEY")
+AUTH_ACCESS_TOKEN_KEY = os.getenv("AUTH_ACCESS_TOKEN_KEY")
+AUTH_REFRESH_TOKEN_KEY = os.getenv("AUTH_REFRESH_TOKEN_KEY")
 ALGORITHM = "HS256"
 
 
@@ -65,10 +67,44 @@ def authenticate_user(username: str, password: str, db: Session):
     return user
 
 
+def create_access_and_refresh_token(
+    username: str, user_id: int, expires_delta: Optional[timedelta] = None
+):
+    accessEncode = {
+        "sub": username,
+        "id": user_id,
+    }
+    refreshEncode = {
+        "sub": username,
+        "id": user_id,
+        "exp": datetime.utcnow() + timedelta(days=(30 * 6)),
+    }
+
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+
+    accessEncode.update(
+        {
+            "exp": expire,
+        }
+    )
+
+    access_token = jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
+    refresh_token = jwt.encode(refreshEncode, AUTH_REFRESH_TOKEN_KEY, algorithm=ALGORITHM)
+
+    # return jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token
+    }
+
+
 def create_access_token(
     username: str, user_id: int, expires_delta: Optional[timedelta] = None
 ):
-    encode = {
+    accessEncode = {
         "sub": username,
         "id": user_id,
     }
@@ -78,18 +114,21 @@ def create_access_token(
     else:
         expire = datetime.utcnow() + timedelta(minutes=15)
 
-    encode.update(
+    accessEncode.update(
         {
             "exp": expire,
         }
     )
 
-    return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
+    access_token = jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
+
+    # return jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
+    return access_token
 
 
 async def get_current_user(token: str = Depends(oauth2_bearer)):
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=ALGORITHM)
+        payload = jwt.decode(token, AUTH_ACCESS_TOKEN_KEY, algorithms=ALGORITHM)
         username: str = payload.get("sub")
         user_id: int = payload.get("id")
         if username is None or user_id is None:
@@ -103,7 +142,25 @@ async def get_current_user(token: str = Depends(oauth2_bearer)):
         raise get_user_exception()
 
 
-@router.post("/create/user")
+async def get_access_token(token: str = Depends(oauth2_bearer)):
+    try:
+        payload = jwt.decode(token, AUTH_REFRESH_TOKEN_KEY, algorithms=ALGORITHM)
+        username: str = payload.get("sub")
+        user_id: int = payload.get("id")
+        print(user_id)
+        if username is None or user_id is None:
+            raise get_user_exception()
+
+        access_token = create_access_token(username, user_id)
+
+        print(access_token)
+
+        return access_token
+    except:
+        raise get_user_exception()
+
+
+@router.post("/signup")
 async def create_new_user(create_user: CreateUser, db: Session = Depends(get_db)):
     create_user_model = models.Users()
     create_user_model.email = create_user.email
@@ -121,7 +178,7 @@ async def create_new_user(create_user: CreateUser, db: Session = Depends(get_db)
     db.commit()
 
 
-@router.post("/token")
+@router.post("/login")
 async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
 ):
@@ -131,10 +188,19 @@ async def login_for_access_token(
         raise token_exception()
 
     token_expires = timedelta(minutes=20)
-    token = create_access_token(user.username, user.id, expires_delta=token_expires)
+    token = create_access_and_refresh_token(user.username, user.id, expires_delta=token_expires)
 
     return {
-        "token": token,
+        "access_token": token.get('access_token'),
+        "refresh_token": token.get('refresh_token'),
+    }
+
+
+@router.post('/refresh')
+async def refresh_token(access_token: str = Depends(get_access_token)):
+    return {
+        "access_token": access_token,
+        'hi': 'by'
     }
 
 
