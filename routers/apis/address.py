@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from .auth import get_current_user, get_user_exception
 
 router = APIRouter(
-    prefix="/address",
+    prefix="/api/address",
     tags=["address"],
     responses={
         status.HTTP_404_NOT_FOUND: {

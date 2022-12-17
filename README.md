@@ -12,8 +12,10 @@ An example of a FastAPI Server
 ## Environment Variables
 
 ```sh
-SECRET_KEY
+AUTH_ACCESS_TOKEN_KEY
+AUTH_REFRESH_TOKEN_KEY
 SQLALCHEMY_DB_URL
+
 ```
 
 ## Installed packages
@@ -28,6 +30,8 @@ pip install "python-jose[cryptography]"
 pip install python-dotenv
 pip install psycopg2-binary # for postgres
 pip install alembic
+pip install aiofiles
+pip install jinja2
 ```
 
 ## Shell commands used

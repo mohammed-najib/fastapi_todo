@@ -2,8 +2,10 @@ import sys
 
 sys.path.append("..")
 
-from fastapi import Depends, HTTPException, status, APIRouter
-from pydantic import BaseModel
+# from starlette import status
+from starlette.responses import RedirectResponse
+
+from fastapi import Depends, HTTPException, status, APIRouter, Request, Response, Form
 from typing import Optional
 import models
 from passlib.context import CryptContext
@@ -11,27 +13,18 @@ from sqlalchemy.orm import Session
 from database import get_db
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from datetime import datetime, timedelta
-from jose import jwt
+from jose import jwt, JWTError
 from dotenv import load_dotenv
 import os
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 load_dotenv()
 
 
-# SECRET_KEY = os.getenv("SECRET_KEY")
 AUTH_ACCESS_TOKEN_KEY = os.getenv("AUTH_ACCESS_TOKEN_KEY")
 AUTH_REFRESH_TOKEN_KEY = os.getenv("AUTH_REFRESH_TOKEN_KEY")
 ALGORITHM = "HS256"
-
-
-class CreateUser(BaseModel):
-    username: str
-    email: Optional[str]
-    first_name: str
-    last_name: str
-    password: str
-    phone_number: Optional[str]
-
 
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -46,6 +39,21 @@ router = APIRouter(
         },
     },
 )
+
+
+class LoginForm:
+    def __init__(self, request: Request):
+        self.request: Request = request
+        self.username: Optional[str] = None
+        self.password: Optional[str] = None
+
+    async def create_oauth_form(self):
+        form = await self.request.form()
+        self.username = form.get("email")
+        self.password = form.get("password")
+
+
+templates = Jinja2Templates(directory="templates")
 
 
 def get_password_hash(password):
@@ -67,38 +75,37 @@ def authenticate_user(username: str, password: str, db: Session):
     return user
 
 
-def create_access_and_refresh_token(
-    username: str, user_id: int, expires_delta: Optional[timedelta] = None
-):
-    accessEncode = {
-        "sub": username,
-        "id": user_id,
-    }
-    refreshEncode = {
-        "sub": username,
-        "id": user_id,
-        "exp": datetime.utcnow() + timedelta(days=(30 * 6)),
-    }
+# def create_access_and_refresh_token(
+#     username: str, user_id: int, expires_delta: Optional[timedelta] = None
+# ):
+#     accessEncode = {
+#         "sub": username,
+#         "id": user_id,
+#     }
+#     refreshEncode = {
+#         "sub": username,
+#         "id": user_id,
+#         "exp": datetime.utcnow() + timedelta(days=(30 * 6)),
+#     }
 
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+#     if expires_delta:
+#         expire = datetime.utcnow() + expires_delta
+#     else:
+#         expire = datetime.utcnow() + timedelta(minutes=15)
 
-    accessEncode.update(
-        {
-            "exp": expire,
-        }
-    )
+#     accessEncode.update(
+#         {
+#             "exp": expire,
+#         }
+#     )
 
-    access_token = jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
-    refresh_token = jwt.encode(refreshEncode, AUTH_REFRESH_TOKEN_KEY, algorithm=ALGORITHM)
+#     access_token = jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
+#     refresh_token = jwt.encode(
+#         refreshEncode, AUTH_REFRESH_TOKEN_KEY, algorithm=ALGORITHM
+#     )
 
-    # return jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token
-    }
+#     # return jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
+#     return {"access_token": access_token, "refresh_token": refresh_token}
 
 
 def create_access_token(
@@ -122,108 +129,153 @@ def create_access_token(
 
     access_token = jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
 
-    # return jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
     return access_token
 
 
-async def get_current_user(token: str = Depends(oauth2_bearer)):
+async def get_current_user(request: Request):
     try:
+        token = request.cookies.get("access_token")
+        if token is None:
+            return None
         payload = jwt.decode(token, AUTH_ACCESS_TOKEN_KEY, algorithms=ALGORITHM)
         username: str = payload.get("sub")
         user_id: int = payload.get("id")
         if username is None or user_id is None:
-            raise get_user_exception()
+            await logout(request)
+
+            return None
 
         return {
             "username": username,
             "id": user_id,
         }
-    except:
-        raise get_user_exception()
+    except JWTError:
+        await logout(request)
+        # raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+        return None
 
 
-async def get_access_token(token: str = Depends(oauth2_bearer)):
-    try:
-        payload = jwt.decode(token, AUTH_REFRESH_TOKEN_KEY, algorithms=ALGORITHM)
-        username: str = payload.get("sub")
-        user_id: int = payload.get("id")
-        print(user_id)
-        if username is None or user_id is None:
-            raise get_user_exception()
-
-        access_token = create_access_token(username, user_id)
-
-        print(access_token)
-
-        return access_token
-    except:
-        raise get_user_exception()
-
-
-@router.post("/signup")
-async def create_new_user(create_user: CreateUser, db: Session = Depends(get_db)):
-    create_user_model = models.Users()
-    create_user_model.email = create_user.email
-    create_user_model.username = create_user.username
-    create_user_model.first_name = create_user.first_name
-    create_user_model.last_name = create_user.last_name
-    create_user_model.phone_number = create_user.phone_number
-
-    hash_password = get_password_hash(create_user.password)
-
-    create_user_model.hashed_password = hash_password
-    create_user_model.is_active = True
-
-    db.add(create_user_model)
-    db.commit()
-
-
-@router.post("/login")
+# @router.post("/login")
 async def login_for_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
+    response: Response,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
 ):
     user = authenticate_user(form_data.username, form_data.password, db)
 
     if not user:
-        raise token_exception()
+        return False
 
-    token_expires = timedelta(minutes=20)
-    token = create_access_and_refresh_token(user.username, user.id, expires_delta=token_expires)
+    token_expires = timedelta(minutes=60)
+    token = create_access_token(user.username, user.id, expires_delta=token_expires)
 
-    return {
-        "access_token": token.get('access_token'),
-        "refresh_token": token.get('refresh_token'),
-    }
+    response.set_cookie(key="access_token", value=token, httponly=True)
 
-
-@router.post('/refresh')
-async def refresh_token(access_token: str = Depends(get_access_token)):
-    return {
-        "access_token": access_token,
-        'hi': 'by'
-    }
+    return True
 
 
-# Exceptions
-def get_user_exception():
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={
-            "WWW-Authenticate": "Bearer",
+@router.get("/", response_class=HTMLResponse)
+async def authentication_page(request: Request):
+    return templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
         },
     )
 
-    return credentials_exception
+
+@router.post("/", response_class=HTMLResponse)
+async def login(request: Request, db: Session = Depends(get_db)):
+    try:
+        form = LoginForm(request)
+        await form.create_oauth_form()
+        response = RedirectResponse(url="/todos", status_code=status.HTTP_302_FOUND)
+
+        validate_user_cookie = await login_for_access_token(
+            response=response, form_data=form, db=db
+        )
+
+        if not validate_user_cookie:
+            msg = "Incorrect Username or Password"
+
+            return templates.TemplateResponse(
+                "login.html",
+                {
+                    "request": request,
+                    "msg": msg,
+                },
+            )
+
+        return response
+    except HTTPException:
+        msg = "Unknown Error"
+
+        return templates.TemplateResponse(
+            "login.html", {"request": request, "msg": msg}
+        )
 
 
-def token_exception():
-    token_exception_response = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Incorrect username or password",
-        headers={
-            "WWW-Authenticate": "Bearer",
+@router.get("/logout")
+async def logout(request: Request):
+    msg = "Logout Successful"
+    response = templates.TemplateResponse(
+        "login.html",
+        {
+            "request": request,
+            "msg": msg,
+        },
+    )
+    response.delete_cookie(key="access_token")
+
+    return response
+
+
+@router.get("/register", response_class=HTMLResponse)
+async def register(request: Request):
+    return templates.TemplateResponse(
+        "register.html",
+        {
+            "request": request,
         },
     )
 
-    return token_exception_response
+
+@router.post("/register", response_class=HTMLResponse)
+async def register_user(
+    request: Request,
+    email: str = Form(...),
+    username: str = Form(...),
+    firstname: str = Form(...),
+    lastname: str = Form(...),
+    password: str = Form(...),
+    password2: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    validation1 = (
+        db.query(models.Users).filter(models.Users.username == username).first()
+    )
+    validation2 = db.query(models.Users).filter(models.Users.email == email).first()
+
+    if password != password2 or validation1 is not None or validation2 is not None:
+        msg = "Invalid registration request"
+
+        return templates.TemplateResponse(
+            "register.html", {"request": request, "msg": msg}
+        )
+
+    user_model = models.Users()
+    user_model.username = username
+    user_model.email = email
+    user_model.first_name = firstname
+    user_model.last_name = lastname
+
+    hash_password = get_password_hash(password)
+    user_model.hashed_password = hash_password
+    user_model.is_active = True
+
+    db.add(user_model)
+    db.commit()
+
+    msg = "User successfully created"
+
+    return templates.TemplateResponse("login.html", {"request": request, "msg": msg})

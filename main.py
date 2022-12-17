@@ -1,25 +1,29 @@
-from fastapi import FastAPI, status, Depends
+from fastapi import FastAPI
 import models
 from database import engine
-from routers import auth, todos, users, address
-from company import companyapis, dependencies
+from routers import todos as todosSite, auth as authSite, users as usersSite
+from routers.apis import auth, todos, users, address
+from starlette import status
+from starlette.staticfiles import StaticFiles
+from starlette.responses import RedirectResponse
 
 app = FastAPI()
 
 models.Base.metadata.create_all(bind=engine)
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/todos", status_code=status.HTTP_302_FOUND)
+
+
+app.include_router(authSite.router)
+app.include_router(todosSite.router)
+app.include_router(usersSite.router)
+
 app.include_router(auth.router)
 app.include_router(todos.router)
 app.include_router(users.router)
 app.include_router(address.router)
-app.include_router(
-    companyapis.router,
-    prefix="/companyapis",
-    tags=["compnayapis"],
-    dependencies=[Depends(dependencies.get_token_header)],
-    responses={
-        status.HTTP_404_NOT_FOUND: {
-            "description": "Not found",
-        },
-    },
-)
