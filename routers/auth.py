@@ -2,7 +2,6 @@ import sys
 
 sys.path.append("..")
 
-# from starlette import status
 from starlette.responses import RedirectResponse
 
 from fastapi import Depends, HTTPException, status, APIRouter, Request, Response, Form
@@ -75,39 +74,6 @@ def authenticate_user(username: str, password: str, db: Session):
     return user
 
 
-# def create_access_and_refresh_token(
-#     username: str, user_id: int, expires_delta: Optional[timedelta] = None
-# ):
-#     accessEncode = {
-#         "sub": username,
-#         "id": user_id,
-#     }
-#     refreshEncode = {
-#         "sub": username,
-#         "id": user_id,
-#         "exp": datetime.utcnow() + timedelta(days=(30 * 6)),
-#     }
-
-#     if expires_delta:
-#         expire = datetime.utcnow() + expires_delta
-#     else:
-#         expire = datetime.utcnow() + timedelta(minutes=15)
-
-#     accessEncode.update(
-#         {
-#             "exp": expire,
-#         }
-#     )
-
-#     access_token = jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
-#     refresh_token = jwt.encode(
-#         refreshEncode, AUTH_REFRESH_TOKEN_KEY, algorithm=ALGORITHM
-#     )
-
-#     # return jwt.encode(accessEncode, AUTH_ACCESS_TOKEN_KEY, algorithm=ALGORITHM)
-#     return {"access_token": access_token, "refresh_token": refresh_token}
-
-
 def create_access_token(
     username: str, user_id: int, expires_delta: Optional[timedelta] = None
 ):
@@ -155,7 +121,6 @@ async def get_current_user(request: Request):
         return None
 
 
-# @router.post("/login")
 async def login_for_access_token(
     response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),

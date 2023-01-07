@@ -19,8 +19,6 @@ async def root():
     return RedirectResponse(url="/todos", status_code=status.HTTP_302_FOUND)
 
 
-# app.include_router(static.router)
-
 app.include_router(authSite.router)
 app.include_router(todosSite.router)
 app.include_router(usersSite.router)
