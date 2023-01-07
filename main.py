@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 import models
 from database import engine
-from routers import todos as todosSite, auth as authSite, users as usersSite, static
+from routers import todos as todosSite, auth as authSite, users as usersSite
 from routers.apis import auth, todos, users, address
 from starlette import status
 from starlette.staticfiles import StaticFiles
